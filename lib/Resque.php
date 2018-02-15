@@ -1,16 +1,17 @@
 <?php
+
 /**
  * Base Resque class.
  *
- * @package		Resque
- * @author		Chris Boulton <chris@bigcommerce.com>
- * @license		http://www.opensource.org/licenses/mit-license.php
+ * @package        Resque
+ * @author         Chris Boulton <chris@bigcommerce.com>
+ * @license        http://www.opensource.org/licenses/mit-license.php
  */
 class Resque
 {
 	const VERSION = '1.2';
 
-    const DEFAULT_INTERVAL = 5;
+	const DEFAULT_INTERVAL = 5;
 
 	/**
 	 * @var Resque_Redis Instance of Resque_Redis that talks to redis.
@@ -36,13 +37,13 @@ class Resque
 	 *                      a callable that receives the configured database ID
 	 *                      and returns a Resque_Redis instance, or
 	 *                      a nested array of servers with host/port pairs.
-	 * @param int $database
+	 * @param int   $database
 	 */
 	public static function setBackend($server, $database = 0)
 	{
-		self::$redisServer   = $server;
+		self::$redisServer = $server;
 		self::$redisDatabase = $database;
-		self::$redis         = null;
+		self::$redis = null;
 	}
 
 	/**
@@ -76,7 +77,7 @@ class Resque
 	 */
 	public static function fork()
 	{
-		if(!function_exists('pcntl_fork')) {
+		if (!function_exists('pcntl_fork')) {
 			return false;
 		}
 
@@ -85,7 +86,7 @@ class Resque
 		self::$redis = null;
 
 		$pid = pcntl_fork();
-		if($pid === -1) {
+		if ($pid === -1) {
 			throw new RuntimeException('Unable to fork child worker.');
 		}
 
@@ -97,19 +98,26 @@ class Resque
 	 * exist, then create it as well.
 	 *
 	 * @param string $queue The name of the queue to add the job to.
-	 * @param array $item Job description as an array to be JSON encoded.
+	 * @param array  $item  Job description as an array to be JSON encoded.
+	 *
+	 * @return bool
 	 */
 	public static function push($queue, $item)
 	{
+		$redis = self::redis();
+
 		$encodedItem = json_encode($item);
 		if ($encodedItem === false) {
 			return false;
 		}
-		self::redis()->sadd('queues', $queue);
-		$length = self::redis()->rpush('queue:' . $queue, $encodedItem);
+		$redis->sadd('queues', $queue);
+		$randKey = 'queue:' . $queue . ':' . mt_rand(0, 16384);
+
+		$length = $redis->rpush($randKey, $encodedItem);
 		if ($length < 1) {
 			return false;
 		}
+
 		return true;
 	}
 
@@ -118,80 +126,99 @@ class Resque
 	 * return it.
 	 *
 	 * @param string $queue The name of the queue to fetch an item from.
+	 *
 	 * @return array Decoded item from the queue.
 	 */
 	public static function pop($queue)
 	{
-        $item = self::redis()->lpop('queue:' . $queue);
+		$item = null;
+		$redis = self::redis();
 
-		if(!$item) {
-			return;
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		foreach ($redis->getConnection() as $nodeConnection) {
+			$keys = $nodeConnection->executeCommand($keysCommand);
+			$key = array_pop($keys);
+			if ($key) {
+				$keyParts = explode(':', $key);
+				unset($keyParts[0]);
+				$keyWithoutPrefix = implode(':', $keyParts);
+				$item = self::redis()->lpop($keyWithoutPrefix);
+				if ($item) {
+					return json_decode($item, true);
+				}
+			}
 		}
 
-		return json_decode($item, true);
+		if (!$item) {
+			return;
+		}
 	}
 
 	/**
 	 * Remove items of the specified queue
 	 *
 	 * @param string $queue The name of the queue to fetch an item from.
-	 * @param array $items
+	 * @param array  $items
+	 *
 	 * @return integer number of deleted items
 	 */
 	public static function dequeue($queue, $items = Array())
 	{
-	    if(count($items) > 0) {
-		return self::removeItems($queue, $items);
-	    } else {
-		return self::removeList($queue);
-	    }
+		if (count($items) > 0) {
+			return self::removeItems($queue, $items);
+		} else {
+			return self::removeList($queue);
+		}
 	}
 
 	/**
 	 * Remove specified queue
 	 *
 	 * @param string $queue The name of the queue to remove.
+	 *
 	 * @return integer Number of deleted items
 	 */
 	public static function removeQueue($queue)
 	{
-	    $num = self::removeList($queue);
-	    self::redis()->srem('queues', $queue);
-	    return $num;
+		$num = self::removeList($queue);
+		self::redis()->srem('queues', $queue);
+
+		return $num;
 	}
 
 	/**
 	 * Pop an item off the end of the specified queues, using blocking list pop,
 	 * decode it and return it.
 	 *
-	 * @param array         $queues
-	 * @param int           $timeout
+	 * @param array $queues
+	 * @param int   $timeout
+	 *
 	 * @return null|array   Decoded item from the queue.
 	 */
 	public static function blpop(array $queues, $timeout)
 	{
-	    $list = array();
-	    foreach($queues AS $queue) {
-		$list[] = 'queue:' . $queue;
-	    }
+		$list = array();
+		foreach ($queues AS $queue) {
+			$list[] = 'queue:' . $queue;
+		}
 
-	    $item = self::redis()->blpop($list, (int)$timeout);
+		$item = self::redis()->blpop($list, (int) $timeout);
 
-	    if(!$item) {
-		return;
-	    }
+		if (!$item) {
+			return;
+		}
 
-	    /**
-	     * Normally the Resque_Redis class returns queue names without the prefix
-	     * But the blpop is a bit different. It returns the name as prefix:queue:name
-	     * So we need to strip off the prefix:queue: part
-	     */
-	    $queue = substr($item[0], strlen(self::redis()->getPrefix() . 'queue:'));
+		/**
+		 * Normally the Resque_Redis class returns queue names without the prefix
+		 * But the blpop is a bit different. It returns the name as prefix:queue:name
+		 * So we need to strip off the prefix:queue: part
+		 */
+		$queue = substr($item[0], strlen(self::redis()->getPrefix() . 'queue:'));
 
-	    return array(
-		'queue'   => $queue,
-		'payload' => json_decode($item[1], true)
-	    );
+		return array(
+			'queue' => $queue,
+			'payload' => json_decode($item[1], true),
+		);
 	}
 
 	/**
@@ -203,32 +230,46 @@ class Resque
 	 */
 	public static function size($queue)
 	{
-		return self::redis()->llen('queue:' . $queue);
+		$length = 0;
+		$redis = self::redis();
+
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		foreach ($redis->getConnection() as $nodeConnection) {
+			$keys = $nodeConnection->executeCommand($keysCommand);
+			$key = array_pop($keys);
+			if ($key) {
+				$keyParts = explode(':', $key);
+				unset($keyParts[0]);
+				$keyWithoutPrefix = implode(':', $keyParts);
+				$length += self::redis()->llen($keyWithoutPrefix);
+			}
+		}
+
+		return $length;
 	}
 
 	/**
 	 * Create a new job and save it to the specified queue.
 	 *
-	 * @param string $queue The name of the queue to place the job in.
-	 * @param string $class The name of the class that contains the code to execute the job.
-	 * @param array $args Any optional arguments that should be passed when the job is executed.
+	 * @param string  $queue       The name of the queue to place the job in.
+	 * @param string  $class       The name of the class that contains the code to execute the job.
+	 * @param array   $args        Any optional arguments that should be passed when the job is executed.
 	 * @param boolean $trackStatus Set to true to be able to monitor the status of a job.
 	 *
 	 * @return string|boolean Job ID when the job was created, false if creation was cancelled due to beforeEnqueue
 	 */
 	public static function enqueue($queue, $class, $args = null, $trackStatus = false)
 	{
-		$id         = Resque::generateJobId();
+		$id = Resque::generateJobId();
 		$hookParams = array(
 			'class' => $class,
-			'args'  => $args,
+			'args' => $args,
 			'queue' => $queue,
-			'id'    => $id,
+			'id' => $id,
 		);
 		try {
 			Resque_Event::trigger('beforeEnqueue', $hookParams);
-		}
-		catch(Resque_Job_DontCreate $e) {
+		} catch (Resque_Job_DontCreate $e) {
 			return false;
 		}
 
@@ -242,6 +283,7 @@ class Resque
 	 * Reserve and return the next available job in the specified queue.
 	 *
 	 * @param string $queue Queue to fetch next available job from.
+	 *
 	 * @return Resque_Job Instance of Resque_Job to be processed, false if none or error.
 	 */
 	public static function reserve($queue)
@@ -257,9 +299,10 @@ class Resque
 	public static function queues()
 	{
 		$queues = self::redis()->smembers('queues');
-		if(!is_array($queues)) {
+		if (!is_array($queues)) {
 			$queues = array();
 		}
+
 		return $queues;
 	}
 
@@ -272,15 +315,16 @@ class Resque
 	 * @private
 	 *
 	 * @param string $queue The name of the queue
-	 * @param array $items
+	 * @param array  $items
+	 *
 	 * @return integer number of deleted items
 	 */
 	private static function removeItems($queue, $items = Array())
 	{
 		$counter = 0;
-		$originalQueue = 'queue:'. $queue;
-		$tempQueue = $originalQueue. ':temp:'. time();
-		$requeueQueue = $tempQueue. ':requeue';
+		$originalQueue = 'queue:' . $queue;
+		$tempQueue = $originalQueue . ':temp:' . time();
+		$requeueQueue = $tempQueue . ':requeue';
 
 		// move each item from original queue to temp queue and process it
 		$finished = false;
@@ -288,7 +332,7 @@ class Resque
 			$string = self::redis()->rpoplpush($originalQueue, self::redis()->getPrefix() . $tempQueue);
 
 			if (!empty($string)) {
-				if(self::matchItem($string, $items)) {
+				if (self::matchItem($string, $items)) {
 					self::redis()->rpop($tempQueue);
 					$counter++;
 				} else {
@@ -302,9 +346,9 @@ class Resque
 		// move back from temp queue to original queue
 		$finished = false;
 		while (!$finished) {
-			$string = self::redis()->rpoplpush($requeueQueue, self::redis()->getPrefix() .$originalQueue);
+			$string = self::redis()->rpoplpush($requeueQueue, self::redis()->getPrefix() . $originalQueue);
 			if (empty($string)) {
-			    $finished = true;
+				$finished = true;
 			}
 		}
 
@@ -327,29 +371,31 @@ class Resque
 	 */
 	private static function matchItem($string, $items)
 	{
-	    $decoded = json_decode($string, true);
+		$decoded = json_decode($string, true);
 
-	    foreach($items as $key => $val) {
-		# class name only  ex: item[0] = ['class']
-		if (is_numeric($key)) {
-		    if($decoded['class'] == $val) {
-			return true;
-		    }
-		# class name with args , example: item[0] = ['class' => {'foo' => 1, 'bar' => 2}]
-    		} elseif (is_array($val)) {
-		    $decodedArgs = (array)$decoded['args'][0];
-		    if ($decoded['class'] == $key &&
-			count($decodedArgs) > 0 && count(array_diff($decodedArgs, $val)) == 0) {
-			return true;
+		foreach ($items as $key => $val) {
+			# class name only  ex: item[0] = ['class']
+			if (is_numeric($key)) {
+				if ($decoded['class'] == $val) {
+					return true;
+				}
+				# class name with args , example: item[0] = ['class' => {'foo' => 1, 'bar' => 2}]
+			} elseif (is_array($val)) {
+				$decodedArgs = (array) $decoded['args'][0];
+				if ($decoded['class'] == $key &&
+					count($decodedArgs) > 0 &&
+					count(array_diff($decodedArgs, $val)) == 0) {
+					return true;
+				}
+				# class name with ID, example: item[0] = ['class' => 'id']
+			} else {
+				if ($decoded['class'] == $key && $decoded['id'] == $val) {
+					return true;
+				}
 			}
-		# class name with ID, example: item[0] = ['class' => 'id']
-		} else {
-		    if ($decoded['class'] == $key && $decoded['id'] == $val) {
-			return true;
-		    }
 		}
-	    }
-	    return false;
+
+		return false;
 	}
 
 	/**
@@ -358,13 +404,31 @@ class Resque
 	 * @private
 	 *
 	 * @params string $queue the name of the queue
+	 *
 	 * @return integer number of deleted items belongs to this list
 	 */
 	private static function removeList($queue)
 	{
-	    $counter = self::size($queue);
-	    $result = self::redis()->del('queue:' . $queue);
-	    return ($result == 1) ? $counter : 0;
+		$counter = self::size($queue);
+
+		$redis = self::redis();
+
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		foreach ($redis->getConnection() as $nodeConnection) {
+			$keys = $nodeConnection->executeCommand($keysCommand);
+			$key = array_pop($keys);
+			if ($key) {
+				$keyParts = explode(':', $key);
+				unset($keyParts[0]);
+				$keyWithoutPrefix = implode(':', $keyParts);
+				$result = self::redis()->del($keyWithoutPrefix);
+				if ($result !== 1) {
+					return 0;
+				}
+			}
+		}
+
+		return ($result == 1) ? $counter : 0;
 	}
 
 	/*
