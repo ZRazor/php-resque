@@ -134,7 +134,7 @@ class Resque
 		$item = null;
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
@@ -233,7 +233,7 @@ class Resque
 		$length = 0;
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
@@ -413,7 +413,7 @@ class Resque
 
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
