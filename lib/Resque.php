@@ -134,7 +134,13 @@ class Resque
 		$item = null;
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
+		$item = self::redis()->lpop('queue:' . $queue);
+
+		if($item) {
+			return json_decode($item, true);
+		}
+
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
@@ -233,7 +239,13 @@ class Resque
 		$length = 0;
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
+		$item = self::redis()->lpop('queue:' . $queue);
+
+		if($item) {
+			return json_decode($item, true);
+		}
+
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
@@ -410,10 +422,15 @@ class Resque
 	private static function removeList($queue)
 	{
 		$counter = self::size($queue);
-
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . '*']);
+		$item = self::redis()->lpop('queue:' . $queue);
+
+		if($item) {
+			return json_decode($item, true);
+		}
+
+		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
 			$keys = $nodeConnection->executeCommand($keysCommand);
 			$key = array_pop($keys);
