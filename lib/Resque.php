@@ -236,14 +236,9 @@ class Resque
 	 */
 	public static function size($queue)
 	{
-		$length = 0;
 		$redis = self::redis();
 
-		$item = self::redis()->lpop('queue:' . $queue);
-
-		if($item) {
-			return json_decode($item, true);
-		}
+		$length = self::redis()->llen('queue:' . $queue);
 
 		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
@@ -424,11 +419,7 @@ class Resque
 		$counter = self::size($queue);
 		$redis = self::redis();
 
-		$item = self::redis()->lpop('queue:' . $queue);
-
-		if($item) {
-			return json_decode($item, true);
-		}
+		$result = self::redis()->del('queue:' . $queue);
 
 		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
 		foreach ($redis->getConnection() as $nodeConnection) {
