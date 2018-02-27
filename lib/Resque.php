@@ -136,11 +136,12 @@ class Resque
 		if($item) {
 			return json_decode($item, true);
 		}
-		$key = self::getKeyIteratorByMask('queue:' . $queue . ':*');
-		if ($key) {
-			$item = self::redis()->lpop($key);
-			if ($item) {
-				return json_decode($item, true);
+		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
+			if ($key) {
+				$item = self::redis()->lpop($key);
+				if ($item) {
+					return json_decode($item, true);
+				}
 			}
 		}
 
