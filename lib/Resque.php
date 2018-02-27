@@ -131,27 +131,16 @@ class Resque
 	 */
 	public static function pop($queue)
 	{
-		$item = null;
-		$redis = self::redis();
-
 		$item = self::redis()->lpop('queue:' . $queue);
 
 		if($item) {
 			return json_decode($item, true);
 		}
-
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
-		foreach ($redis->getConnection() as $nodeConnection) {
-			$keys = $nodeConnection->executeCommand($keysCommand);
-			$key = array_pop($keys);
-			if ($key) {
-				$keyParts = explode(':', $key);
-				unset($keyParts[0]);
-				$keyWithoutPrefix = implode(':', $keyParts);
-				$item = self::redis()->lpop($keyWithoutPrefix);
-				if ($item) {
-					return json_decode($item, true);
-				}
+		$key = self::getKeyIteratorByMask('queue:' . $queue . ':*');
+		if ($key) {
+			$item = self::redis()->lpop($key);
+			if ($item) {
+				return json_decode($item, true);
 			}
 		}
 
@@ -236,20 +225,10 @@ class Resque
 	 */
 	public static function size($queue)
 	{
-		$redis = self::redis();
-
 		$length = self::redis()->llen('queue:' . $queue);
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
-		foreach ($redis->getConnection() as $nodeConnection) {
-			$keys = $nodeConnection->executeCommand($keysCommand);
-			$key = array_pop($keys);
-			if ($key) {
-				$keyParts = explode(':', $key);
-				unset($keyParts[0]);
-				$keyWithoutPrefix = implode(':', $keyParts);
-				$length += self::redis()->llen($keyWithoutPrefix);
-			}
+		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
+			$length += self::redis()->llen($key);
 		}
 
 		return $length;
@@ -421,18 +400,10 @@ class Resque
 
 		$result = self::redis()->del('queue:' . $queue);
 
-		$keysCommand = $redis->createCommand('keys', ['queue:' . $queue . ':*']);
-		foreach ($redis->getConnection() as $nodeConnection) {
-			$keys = $nodeConnection->executeCommand($keysCommand);
-			$key = array_pop($keys);
-			if ($key) {
-				$keyParts = explode(':', $key);
-				unset($keyParts[0]);
-				$keyWithoutPrefix = implode(':', $keyParts);
-				$result = self::redis()->del($keyWithoutPrefix);
-				if ($result !== 1) {
-					return 0;
-				}
+		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
+			$result = self::redis()->del($key);
+			if ($result !== 1) {
+				return 0;
 			}
 		}
 
@@ -447,5 +418,23 @@ class Resque
 	public static function generateJobId()
 	{
 		return md5(uniqid('', true));
+	}
+
+	public static function getKeyIteratorByMask($mask)
+	{
+		$redis = self::redis();
+
+		$keysCommand = $redis->createCommand('keys', [$mask]);
+		foreach ($redis->getConnection() as $nodeConnection) {
+			$keys = $nodeConnection->executeCommand($keysCommand);
+			$key = array_pop($keys);
+			if ($key) {
+				$keyParts = explode(':', $key);
+				unset($keyParts[0]);
+				$keyWithoutPrefix = implode(':', $keyParts);
+
+				yield $keyWithoutPrefix;
+			}
+		}
 	}
 }
