@@ -10,8 +10,8 @@
 class Resque
 {
 	const VERSION = '1.2';
-
 	const DEFAULT_INTERVAL = 5;
+	const MAX_KEYS_PER_QUEUE = 24;
 
 	/**
 	 * @var Resque_Redis Instance of Resque_Redis that talks to redis.
@@ -111,7 +111,7 @@ class Resque
 			return false;
 		}
 		$redis->sadd('queues', $queue);
-		$randKey = 'queue:' . $queue . ':' . mt_rand(0, 16384);
+		$randKey = 'queue:' . $queue . ':_' . mt_rand(0, self::MAX_KEYS_PER_QUEUE - 1);
 
 		$length = $redis->rpush($randKey, $encodedItem);
 		if ($length < 1) {
@@ -397,7 +397,6 @@ class Resque
 	private static function removeList($queue)
 	{
 		$counter = self::size($queue);
-		$redis = self::redis();
 
 		$result = self::redis()->del('queue:' . $queue);
 
@@ -425,16 +424,34 @@ class Resque
 	{
 		$redis = self::redis();
 
-		$keysCommand = $redis->createCommand('keys', [$mask]);
-		foreach ($redis->getConnection() as $nodeConnection) {
-			$keys = $nodeConnection->executeCommand($keysCommand);
-			$key = array_pop($keys);
-			if ($key) {
-				$keyParts = explode(':', $key);
-				unset($keyParts[0]);
-				$keyWithoutPrefix = implode(':', $keyParts);
+		$maskParts = explode(':', $mask);
+		unset($maskParts[count($maskParts) - 1]);
+		$newMask = implode(':', $maskParts);
+		$oldQueueIsEmptyKey = $newMask . '!!!';
 
-				yield $keyWithoutPrefix;
+		for ($n = 0; $n < self::MAX_KEYS_PER_QUEUE; $n++) {
+			$key = $newMask . ':_' . $n;
+			if ($redis->exists($key)) {
+				yield $key;
+			}
+		}
+
+		if (!$redis->exists($oldQueueIsEmptyKey)) {
+			$keysCommand = $redis->createCommand('keys', [$mask]);
+			$keysFound = false;
+			foreach ($redis->getConnection() as $nodeConnection) {
+				$keys = $nodeConnection->executeCommand($keysCommand);
+				$key = array_pop($keys);
+				if ($key) {
+					$keyParts = explode(':', $key);
+					unset($keyParts[0]);
+					$keyWithoutPrefix = implode(':', $keyParts);
+					$keysFound = true;
+					yield $keyWithoutPrefix;
+				}
+			}
+			if (!$keysFound) {
+				$redis->set($oldQueueIsEmptyKey, 1);
 			}
 		}
 	}
