@@ -427,7 +427,7 @@ class Resque
 		$maskParts = explode(':', $mask);
 		unset($maskParts[count($maskParts) - 1]);
 		$newMask = implode(':', $maskParts);
-		$oldQueueIsEmptyKey = $newMask . '!!!';
+		$oldQueueIsEmptyKey = '_'.$newMask;
 
 		for ($n = 0; $n < self::MAX_KEYS_PER_QUEUE; $n++) {
 			$key = $newMask . ':_' . $n;
