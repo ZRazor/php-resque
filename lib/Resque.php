@@ -131,11 +131,8 @@ class Resque
 	 */
 	public static function pop($queue)
 	{
-		$item = self::redis()->lpop('queue:' . $queue);
+		$item = false;
 
-		if($item) {
-			return json_decode($item, true);
-		}
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
 				$item = self::redis()->lpop($key);
@@ -226,7 +223,7 @@ class Resque
 	 */
 	public static function size($queue)
 	{
-		$length = self::redis()->llen('queue:' . $queue);
+		$length = 0;
 
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			$length += self::redis()->llen($key);
@@ -398,7 +395,7 @@ class Resque
 	{
 		$counter = self::size($queue);
 
-		$result = self::redis()->del('queue:' . $queue);
+		$result = 0;
 
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			$result = self::redis()->del($key);
@@ -422,36 +419,14 @@ class Resque
 
 	public static function getKeyIteratorByMask($mask)
 	{
-		$redis = self::redis();
-
 		$maskParts = explode(':', $mask);
 		unset($maskParts[count($maskParts) - 1]);
 		$newMask = implode(':', $maskParts);
-		$oldQueueIsEmptyKey = '_'.$newMask;
 
 		for ($n = 0; $n < self::MAX_KEYS_PER_QUEUE; $n++) {
 			$key = $newMask . ':_' . $n;
-			if ($redis->exists($key)) {
+			if (self::redis()->exists($key)) {
 				yield $key;
-			}
-		}
-
-		if (!$redis->exists($oldQueueIsEmptyKey)) {
-			$keysCommand = $redis->createCommand('keys', [$mask]);
-			$keysFound = false;
-			foreach ($redis->getConnection() as $nodeConnection) {
-				$keys = $nodeConnection->executeCommand($keysCommand);
-				$key = array_pop($keys);
-				if ($key) {
-					$keyParts = explode(':', $key);
-					unset($keyParts[0]);
-					$keyWithoutPrefix = implode(':', $keyParts);
-					$keysFound = true;
-					yield $keyWithoutPrefix;
-				}
-			}
-			if (!$keysFound) {
-				$redis->set($oldQueueIsEmptyKey, 1);
 			}
 		}
 	}
