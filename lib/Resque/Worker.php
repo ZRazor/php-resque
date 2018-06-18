@@ -51,38 +51,41 @@ class Resque_Worker
 	 */
 	private $child = null;
 
-    /**
-     * Instantiate a new worker, given a list of queues that it should be working
-     * on. The list of queues should be supplied in the priority that they should
-     * be checked for jobs (first come, first served)
-     *
-     * Passing a single '*' allows the worker to work on all queues in alphabetical
-     * order. You can easily add new queues dynamically and have them worked on using
-     * this method.
-     *
-     * @param string|array $queues String with a single queue name, array with multiple.
-     */
-    public function __construct($queues)
-    {
-        $this->logger = new Resque_Log();
+	/**
+	 * Instantiate a new worker, given a list of queues that it should be working
+	 * on. The list of queues should be supplied in the priority that they should
+	 * be checked for jobs (first come, first served)
+	 *
+	 * Passing a single '*' allows the worker to work on all queues in alphabetical
+	 * order. You can easily add new queues dynamically and have them worked on using
+	 * this method.
+	 *
+	 * @param string|array $queues String with a single queue name, array with multiple.
+	 */
+	public function __construct($queues)
+	{
+		$this->logger = new Resque_Log();
 
-        if(!is_array($queues)) {
-            $queues = array($queues);
-        }
+		if(!is_array($queues)) {
+			$queues = array($queues);
+		}
 
-        $this->queues = $queues;
-        $this->hostname = php_uname('n');
+		$this->queues = $queues;
+		$this->hostname = php_uname('n');
 
-        $this->id = $this->hostname . ':'.getmypid() . ':' . implode(',', $this->queues);
-    }
+		$this->id = $this->hostname . ':'.getmypid() . ':' . implode(',', $this->queues);
+	}
 
 	/**
 	 * Return all workers known to Resque as instantiated instances.
+	 *
+	 * @param  string $hostname
+	 *
 	 * @return array
 	 */
-	public static function all()
+	public static function all($hostname)
 	{
-		$workers = Resque::redis()->smembers('workers');
+		$workers = Resque::redis()->smembers(self::getWorkersKey($hostname));
 		if(!is_array($workers)) {
 			$workers = array();
 		}
@@ -102,7 +105,8 @@ class Resque_Worker
 	 */
 	public static function exists($workerId)
 	{
-		return (bool)Resque::redis()->sismember('workers', $workerId);
+		list($hostname, $pid, $queues) = explode(':', $workerId, 3);
+		return (bool)Resque::redis()->sismember(self::getWorkersKey($hostname), $workerId);
 	}
 
 	/**
@@ -428,11 +432,11 @@ class Resque_Worker
 	public function pruneDeadWorkers()
 	{
 		$workerPids = $this->workerPids();
-		$workers = self::all();
+		$workers = self::all($this->hostname);
 		foreach($workers as $worker) {
 			if (is_object($worker)) {
 				list($host, $pid, $queues) = explode(':', (string)$worker, 3);
-				if($host != $this->hostname || in_array($pid, $workerPids) || $pid == getmypid()) {
+				if(in_array($pid, $workerPids) || $pid == getmypid()) {
 					continue;
 				}
 				$this->logger->log(Psr\Log\LogLevel::INFO, 'Pruning dead worker: {worker}', array('worker' => (string)$worker));
@@ -462,7 +466,7 @@ class Resque_Worker
 	 */
 	public function registerWorker()
 	{
-		Resque::redis()->sadd('workers', (string)$this);
+		Resque::redis()->sadd(self::getWorkersKey($this->hostname), (string)$this);
 		Resque::redis()->set('worker:' . (string)$this . ':started', strftime('%a %b %d %H:%M:%S %Z %Y'));
 	}
 
@@ -476,7 +480,8 @@ class Resque_Worker
 		}
 
 		$id = (string)$this;
-		Resque::redis()->srem('workers', $id);
+		Resque::redis()->srem(self::getWorkersKey($this->hostname), $id);
+
 		Resque::redis()->del('worker:' . $id);
 		Resque::redis()->del('worker:' . $id . ':started');
 		Resque_Stat::clear('processed:' . $id);
@@ -558,5 +563,15 @@ class Resque_Worker
 	public function setLogger(Psr\Log\LoggerInterface $logger)
 	{
 		$this->logger = $logger;
+	}
+
+	/**
+	 * @param string $hostname
+	 *
+	 * @return string
+	 */
+	private static function getWorkersKey($hostname)
+	{
+		return 'workers:' . $hostname;
 	}
 }
