@@ -196,6 +196,8 @@ class Resque_Worker
 			Resque_Event::trigger('beforeFork', $job);
 			$this->workingOn($job);
 
+			$startTime = date('Y-m-d H:i:s');
+
 			$this->child = Resque::fork();
 
 			// Forked and we're the child. Run the job.
@@ -215,10 +217,21 @@ class Resque_Worker
 				$this->updateProcLine($status);
 				$this->logger->log(Psr\Log\LogLevel::INFO, $status);
 
+				Resque::redis()->ltrim('worklog:'.$job->queue, -1000, -1);
+				Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
+					'startTime' => $startTime,
+					'pid' => $this->child,
+				]));
+
 				// Wait until the child process finishes before continuing
 				pcntl_wait($status);
 				$exitStatus = pcntl_wexitstatus($status);
 				if($exitStatus !== 0) {
+					Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
+						'startTime' => $startTime,
+						'failTime' => date('Y-m-d H:i:s'),
+						'pid' => $this->child,
+					]));
 					$job->fail(new Resque_Job_DirtyExitException(
 						'Job exited with exit code ' . $exitStatus
 					));
@@ -227,6 +240,12 @@ class Resque_Worker
 
 			$this->child = null;
 			$this->doneWorking();
+
+			Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
+				'startTime' => $startTime,
+				'doneTime' => date('Y-m-d H:i:s'),
+				'pid' => $this->child,
+			]));
 		}
 
 		$this->unregisterWorker();
