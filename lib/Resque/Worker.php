@@ -211,6 +211,7 @@ class Resque_Worker
 				}
 			}
 
+			$failed = false;
 			if($this->child > 0) {
 				// Parent process, sit and wait
 				$status = 'Forked ' . $this->child . ' at ' . strftime('%F %T');
@@ -227,6 +228,7 @@ class Resque_Worker
 				pcntl_wait($status);
 				$exitStatus = pcntl_wexitstatus($status);
 				if($exitStatus !== 0) {
+					$failed = true;
 					Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
 						'startTime' => $startTime,
 						'failTime' => date('Y-m-d H:i:s'),
@@ -241,11 +243,13 @@ class Resque_Worker
 			$this->child = null;
 			$this->doneWorking();
 
-			Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
-				'startTime' => $startTime,
-				'doneTime' => date('Y-m-d H:i:s'),
-				'pid' => $this->child,
-			]));
+			if (!$failed) {
+				Resque::redis()->rpush('worklog:'.$job->queue, json_encode([
+					'startTime' => $startTime,
+					'doneTime' => date('Y-m-d H:i:s'),
+					'pid' => $this->child,
+				]));
+			}
 		}
 
 		$this->unregisterWorker();
