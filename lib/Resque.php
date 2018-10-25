@@ -32,9 +32,9 @@ class Resque
 	 */
 	protected static $redisDatabase = 0;
 
-    /**
-     * @var LoggerInterface
-     */
+	/**
+	 * @var LoggerInterface
+	 */
 	protected static $logger;
 
 	/**
@@ -53,10 +53,10 @@ class Resque
 		self::$redisDatabase = $database;
 		self::$redis = null;
 		if(!$logger) {
-            self::$logger = new NullLogger();
-        } else {
-            self::$logger = $logger;
-        }
+			self::$logger = new NullLogger();
+		} else {
+			self::$logger = $logger;
+		}
 	}
 
 	/**
@@ -118,7 +118,7 @@ class Resque
 	public static function push($queue, $item)
 	{
 		$redis = self::redis();
-        $logger = self::$logger;
+		$logger = self::$logger;
 
 		$encodedItem = json_encode($item);
 		if ($encodedItem === false) {
@@ -127,9 +127,9 @@ class Resque
 		$logger->warning('Push to queues ',[$queue]);
 		$redis->sadd('queues', $queue);
 		$randKey = 'queue:' . $queue . ':_' . mt_rand(0, self::MAX_KEYS_PER_QUEUE - 1);
-        $logger->warning('Rpush ', [$randKey, $encodedItem]);
+		$logger->warning('Rpush ', [$randKey, $encodedItem]);
 		$length = $redis->rpush($randKey, $encodedItem);
-        $logger->warning('Rpush returned', [$length]);
+		$logger->warning('Rpush returned', [$length]);
 		if ($length < 1) {
 			return false;
 		}
@@ -147,19 +147,19 @@ class Resque
 	 */
 	public static function pop($queue)
 	{
-        $logger = self::$logger;
+		$logger = self::$logger;
 		$item = false;
 
-        $logger->warning('Getting key iterator', ['queue:' . $queue . ':*']);
+		$logger->warning('Getting key iterator', ['queue:' . $queue . ':*']);
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-			    $logger->warning('Lpop', [$key]);
+				$logger->warning('Lpop', [$key]);
 				$item = self::redis()->lpop($key);
-                $logger->warning('Lpop result', [$item]);
+				$logger->warning('Lpop result', [$item]);
 				if ($item) {
-				    $result = json_decode($item, true);
-                    $logger->warning('Lpop json_decode result', [$result]);
-                    return $result;
+					$result = json_decode($item, true);
+					$logger->warning('Lpop json_decode result', [$result]);
+					return $result;
 				}
 			}
 		}
