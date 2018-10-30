@@ -151,9 +151,9 @@ class Resque
 
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-				$reserveKey = '{' . $key . '}' . md5($key);
+				$reserveKey = $key . md5($key);
 				$item = self::redis()->rpoplpush($key, $reserveKey);
-				self::redis()->expire($reserveKey, self::RESERVE_KEY_LIFETIME);
+				self::redis()->expire($key, self::RESERVE_KEY_LIFETIME);
 				if ($item) {
 					$result = json_decode($item, true);
 
