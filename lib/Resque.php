@@ -6,17 +6,15 @@ use Psr\Log\LoggerInterface;
 /**
  * Base Resque class.
  *
- * @package		Resque
- * @author		 Chris Boulton <chris@bigcommerce.com>
- * @license		http://www.opensource.org/licenses/mit-license.php
+ * @package        Resque
+ * @author         Chris Boulton <chris@bigcommerce.com>
+ * @license        http://www.opensource.org/licenses/mit-license.php
  */
 class Resque
 {
 	const VERSION = '1.2';
 	const DEFAULT_INTERVAL = 5;
 	const MAX_KEYS_PER_QUEUE = 24;
-
-	const RESERVE_KEY_LIFETIME = 10;
 
 	/**
 	 * @var Resque_Redis Instance of Resque_Redis that talks to redis.
@@ -44,9 +42,9 @@ class Resque
 	 * the redis server that Resque will talk to.
 	 *
 	 * @param mixed $server Host/port combination separated by a colon, DSN-formatted URI, or
-	 *					  a callable that receives the configured database ID
-	 *					  and returns a Resque_Redis instance, or
-	 *					  a nested array of servers with host/port pairs.
+	 *                      a callable that receives the configured database ID
+	 *                      and returns a Resque_Redis instance, or
+	 *                      a nested array of servers with host/port pairs.
 	 * @param int   $database
 	 */
 	public static function setBackend($server, $database = 0, $logger = null)
@@ -126,9 +124,12 @@ class Resque
 		if ($encodedItem === false) {
 			return false;
 		}
+		$logger->warning('Push to queues ',[$queue]);
 		$redis->sadd('queues', $queue);
 		$randKey = 'queue:' . $queue . ':_' . mt_rand(0, self::MAX_KEYS_PER_QUEUE - 1);
-		$length = $redis->lpush($randKey, $encodedItem);
+		$logger->warning('Rpush ', [$randKey, $encodedItem]);
+		$length = $redis->rpush($randKey, $encodedItem);
+		$logger->warning('Rpush returned', [$length]);
 		if ($length < 1) {
 			return false;
 		}
@@ -149,25 +150,15 @@ class Resque
 		$logger = self::$logger;
 		$item = false;
 
+		$logger->warning('Getting key iterator', ['queue:' . $queue . ':*']);
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-				$reserveKey = $key . md5($key);
-				$item = self::redis()->rpoplpush($key, $reserveKey);
-				self::redis()->expire($key, self::RESERVE_KEY_LIFETIME);
+				$logger->warning('Lpop', [$key]);
+				$item = self::redis()->lpop($key);
+				$logger->warning('Lpop result', [$item]);
 				if ($item) {
 					$result = json_decode($item, true);
-
-					if (!is_array($result)) {
-						$logger->warning('Bad lpop json_decode result', [$result]);
-
-						$item = self::redis()->lpop($reserveKey);
-						if ($item) {
-							$result = json_decode($item, true);
-
-							$logger->warning('Lpop from reserve key json_decode result', [$result]);
-						}
-					}
-
+					$logger->warning('Lpop json_decode result', [$result]);
 					return $result;
 				}
 			}
@@ -266,9 +257,9 @@ class Resque
 	/**
 	 * Create a new job and save it to the specified queue.
 	 *
-	 * @param string  $queue	   The name of the queue to place the job in.
-	 * @param string  $class	   The name of the class that contains the code to execute the job.
-	 * @param array   $args		Any optional arguments that should be passed when the job is executed.
+	 * @param string  $queue       The name of the queue to place the job in.
+	 * @param string  $class       The name of the class that contains the code to execute the job.
+	 * @param array   $args        Any optional arguments that should be passed when the job is executed.
 	 * @param boolean $trackStatus Set to true to be able to monitor the status of a job.
 	 *
 	 * @return string|boolean Job ID when the job was created, false if creation was cancelled due to beforeEnqueue
