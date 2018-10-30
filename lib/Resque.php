@@ -124,12 +124,9 @@ class Resque
 		if ($encodedItem === false) {
 			return false;
 		}
-		$logger->warning('Push to queues ',[$queue]);
 		$redis->sadd('queues', $queue);
 		$randKey = 'queue:' . $queue . ':_' . mt_rand(0, self::MAX_KEYS_PER_QUEUE - 1);
-		$logger->warning('Rpush ', [$randKey, $encodedItem]);
-		$length = $redis->rpush($randKey, $encodedItem);
-		$logger->warning('Rpush returned', [$length]);
+		$length = $redis->lpush($randKey, $encodedItem);
 		if ($length < 1) {
 			return false;
 		}
@@ -150,15 +147,25 @@ class Resque
 		$logger = self::$logger;
 		$item = false;
 
-		$logger->warning('Getting key iterator', ['queue:' . $queue . ':*']);
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-				$logger->warning('Lpop', [$key]);
-				$item = self::redis()->lpop($key);
-				$logger->warning('Lpop result', [$item]);
+			    $reserveKey = $key . md5($key);
+				$item = self::redis()->rpoplpush($key, $reserveKey);
+				self::redis()->expire($key, self::RESERVE_KEY_LIFETIME);
 				if ($item) {
 					$result = json_decode($item, true);
-					$logger->warning('Lpop json_decode result', [$result]);
+
+					if (!is_array($result)) {
+                        $logger->warning('Bad lpop json_decode result', [$result]);
+
+                        $item = self::redis()->lpop($reserveKey);
+                        if ($item) {
+                            $result = json_decode($item, true);
+
+                            $logger->warning('Lpop from reserve key json_decode result', [$result]);
+                        }
+                    }
+
 					return $result;
 				}
 			}
