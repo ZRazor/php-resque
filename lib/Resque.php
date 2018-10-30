@@ -16,6 +16,8 @@ class Resque
 	const DEFAULT_INTERVAL = 5;
 	const MAX_KEYS_PER_QUEUE = 24;
 
+	const RESERVE_KEY_LIFETIME = 10;
+
 	/**
 	 * @var Resque_Redis Instance of Resque_Redis that talks to redis.
 	 */
