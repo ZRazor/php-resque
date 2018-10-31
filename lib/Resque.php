@@ -153,7 +153,7 @@ class Resque
 			if ($key) {
 				$reserveKey = '{' . self::redis()->getOptions()->prefix->getPrefix() . $key . '}' . getmypid() . sha1(mt_rand().microtime());
 
-				self::redis()->executeRaw(['RPOPLPUSH',self::redis()->getOptions()->prefix->getPrefix() . $key, $reserveKey]);
+                $item = self::redis()->executeRaw(['RPOPLPUSH',self::redis()->getOptions()->prefix->getPrefix() . $key, $reserveKey]);
 				self::redis()->executeRaw(['EXPIRE', $reserveKey, self::RESERVE_KEY_LIFETIME]);
 
 				if ($item) {
