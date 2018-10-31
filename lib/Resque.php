@@ -151,20 +151,22 @@ class Resque
 
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-				$reserveKey = '{' . $key . '}' . md5($key);
-				$item = self::redis()->rpoplpush($key, $reserveKey);
-				self::redis()->expire($reserveKey, self::RESERVE_KEY_LIFETIME);
+				$reserveKey = '{' . self::redis()->getOptions()->prefix->getPrefix() . $key . '}' . getmypid() . sha1(mt_rand().microtime());
+
+				self::redis()->executeRaw(['RPOPLPUSH',self::redis()->getOptions()->prefix->getPrefix() . $key, $reserveKey]);
+				self::redis()->executeRaw(['EXPIRE', $reserveKey, self::RESERVE_KEY_LIFETIME]);
+
 				if ($item) {
 					$result = json_decode($item, true);
 
 					if (!is_array($result)) {
-						$logger->warning('Bad lpop json_decode result', [$result]);
+						$logger->warning('Bad pop json_decode result', [$result]);
 
-						$item = self::redis()->lpop($reserveKey);
+						self::redis()->executeRaw(['LINDEX',$reserveKey, 0]);
 						if ($item) {
 							$result = json_decode($item, true);
 
-							$logger->warning('Lpop from reserve key json_decode result', [$result]);
+							$logger->warning('Lindex from reserve key json_decode result', [$result]);
 						}
 					}
 
