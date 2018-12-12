@@ -146,29 +146,14 @@ class Resque
 	 */
 	public static function pop($queue)
 	{
-		$logger = self::$logger;
 		$item = false;
 
 		foreach (self::getKeyIteratorByMask('queue:' . $queue . ':*') as $key) {
 			if ($key) {
-				$reserveKey = '{' . self::redis()->getOptions()->prefix->getPrefix() . $key . '}' . getmypid() . sha1(mt_rand().microtime());
-
-                $item = self::redis()->executeRaw(['RPOPLPUSH',self::redis()->getOptions()->prefix->getPrefix() . $key, $reserveKey]);
-				self::redis()->executeRaw(['EXPIRE', $reserveKey, self::RESERVE_KEY_LIFETIME]);
+				$item = self::redis()->rpop($key);
 
 				if ($item) {
 					$result = json_decode($item, true);
-
-					if (!is_array($result)) {
-						$logger->warning('Bad pop json_decode result', [$result]);
-
-						self::redis()->executeRaw(['LINDEX',$reserveKey, 0]);
-						if ($item) {
-							$result = json_decode($item, true);
-
-							$logger->warning('Lindex from reserve key json_decode result', [$result]);
-						}
-					}
 
 					return $result;
 				}
@@ -456,7 +441,10 @@ class Resque
 		unset($maskParts[count($maskParts) - 1]);
 		$newMask = implode(':', $maskParts);
 
-		for ($n = 0; $n < self::MAX_KEYS_PER_QUEUE; $n++) {
+		$indexesKeys = range(0, self::MAX_KEYS_PER_QUEUE - 1);
+		shuffle($indexesKeys);
+
+		foreach($indexesKeys as $n) {
 			$key = $newMask . ':_' . $n;
 			if (self::redis()->exists($key)) {
 				yield $key;
